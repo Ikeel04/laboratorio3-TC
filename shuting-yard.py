@@ -33,38 +33,51 @@ def expandir_clases(expr):
             i += 1
     return resultado
 
+def tokenizar(expr):
+    tokens = []
+    buffer = ''
+    for c in expr:
+        if c in {'(', ')', '|', '*', '+', '?'}:
+            if buffer:
+                tokens.append(buffer)
+                buffer = ''
+            tokens.append(c)
+        elif c == ' ':
+            if buffer:
+                tokens.append(buffer)
+                buffer = ''
+        else:
+            buffer += c
+    if buffer:
+        tokens.append(buffer)
+    return tokens
+
 def insertar_concatenaciones(expr):
-    resultado = ''
-    i = 0
-    while i < len(expr):
-        c1 = expr[i]
-        resultado += c1
-        if c1 == '\\':
-            i += 1
-            if i < len(expr):
-                resultado += expr[i]
-        elif i + 1 < len(expr):
-            c2 = expr[i + 1]
-            if ((c1 not in {'(', '|'} and c2 not in {'*', '+', '?', '|', ')'})
-                or (c1 in {'*', '+', '?'} and c2 not in {'*', '+', '?', '|', ')'})
-                or (c1 == ')' and c2 == '(')
-                or (c1 == ')' and c2.isalnum())
-                or (c1.isalnum() and c2 == '(')):
-                resultado += '.'
-        i += 1
-    return resultado
+    tokens = tokenizar(expr)
+    resultado = []
+    for i in range(len(tokens) - 1):
+        t1 = tokens[i]
+        t2 = tokens[i + 1]
+        resultado.append(t1)
+
+        if (t1 not in {'|', '('} and t2 not in {'|', ')', '*', '+', '?'}
+            and t1 != 'ε' and t2 != 'ε'):
+            resultado.append('.')
+
+    resultado.append(tokens[-1])
+    return ''.join(resultado)
 
 def expandir_operadores(expr):
-    i = 0
     resultado = ''
+    i = 0
     while i < len(expr):
-        if expr[i] == '\\':
-            if i + 1 < len(expr):
-                resultado += expr[i:i+2]
-                i += 2
-            else:
-                raise ValueError("Escape incompleto")
-        elif expr[i] == '+':
+        c = expr[i]
+
+        if c == '\\':
+            resultado += expr[i:i+2]
+            i += 2
+
+        elif c == '+':
             if resultado and resultado[-1] == ')':
                 count = 0
                 j = len(resultado) - 1
@@ -77,20 +90,35 @@ def expandir_operadores(expr):
                             break
                     j -= 1
                 grupo = resultado[j:]
-                resultado += '.' + grupo + '*'
+                resultado = resultado[:j] + grupo + '*'
             else:
-                prev = resultado.rstrip('.')[-1]
-                resultado += '.' + prev + '*'
+                prev = resultado[-1]
+                resultado = resultado[:-1] + prev + '*'
             i += 1
-        elif expr[i] == '?':
+
+        elif c == '?':
             if resultado and resultado[-1] == ')':
-                resultado += '|ε'
+                count = 0
+                j = len(resultado) - 1
+                while j >= 0:
+                    if resultado[j] == ')':
+                        count += 1
+                    elif resultado[j] == '(':
+                        count -= 1
+                        if count == 0:
+                            break
+                    j -= 1
+                grupo = resultado[j:]
+                resultado = resultado[:j] + '(' + grupo + '|ε)'
             else:
-                resultado += '|ε'
+                prev = resultado[-1]
+                resultado = resultado[:-1] + '(' + prev + '|ε)'
             i += 1
+
         else:
-            resultado += expr[i]
+            resultado += c
             i += 1
+
     return resultado
 
 def shunting_yard(regex):
@@ -145,15 +173,21 @@ def postfix_a_arbol(postfijo):
     pila = []
     for token in postfijo:
         if token in {'*'}:
+            if len(pila) < 1:
+                raise ValueError("Operador '*' sin operando")
             nodo = Nodo(token, izquierda=pila.pop())
             pila.append(nodo)
         elif token in {'.', '|'}:
+            if len(pila) < 2:
+                raise ValueError(f"Operador '{token}' sin operandos suficientes")
             derecha = pila.pop()
             izquierda = pila.pop()
             nodo = Nodo(token, izquierda, derecha)
             pila.append(nodo)
         else:
             pila.append(Nodo(token))
+    if len(pila) != 1:
+        raise ValueError("Expresión mal formada: más de un nodo raíz")
     return pila[0]
 
 # --------------------
